@@ -26,8 +26,12 @@ services:
     image: ollama/ollama:latest
     container_name: ollama
     restart: always
+    networks:
+      - gitea
     volumes:
       - ./ollama:/root/.ollama
+    ports:
+      - "11434:11434"
 
   gitea-runner:
     image: gitea/act_runner:latest
@@ -40,8 +44,12 @@ services:
       - gitea
     volumes:
       - ./runner-data:/data
+      - ./runner-data/config.yaml:/config.yaml
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       # Use http://gitea:3000 because they share the 'gitea' network
       - GITEA_INSTANCE_URL=http://gitea:3000
       - GITEA_RUNNER_REGISTRATION_TOKEN=ZVrR7FmtFrf4gVT06ZShBfurxMOp9rebMi2kGsAF
+      - GITEA_RUNNER_CONFIG=/config.yaml
+      # Allow the runner to access Docker socket for running job containers
+      - DOCKER_BRIDGE_NETWORK=gitea-server_gitea

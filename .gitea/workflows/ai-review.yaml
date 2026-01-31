@@ -17,16 +17,28 @@ jobs:
           # 1. Capture the changes in the PR
           git diff HEAD^ HEAD > pr_diff.txt
           
-          # 2. Send the diff to Ollama
-          # We use the service name 'ollama' because they are on the same docker network
+          # 2. Send the diff to Ollama for review
+          # Using 'ollama' hostname (they're on the same docker network now)
           RESPONSE=$(curl -s http://ollama:11434/api/generate -d '{
-            "model": "llama3",
-            "prompt": "Review this git diff for bugs and security issues. Keep it brief:\n\n'$(cat pr_diff.txt | jq -sRr @json)'",
+            "model": "llama2",
+            "prompt": "Review this git diff for bugs and security issues. Be concise:\n\n'$(cat pr_diff.txt | jq -sRr @json)'",
             "stream": false
           }' | jq -r '.response')
 
-          # 3. Post the AI comment back to Gitea
-          curl -X POST "${{ gitea.api_url }}/repos/${{ gitea.repository }}/pulls/${{ gitea.event.pull_request.number }}/reviews" \
+          echo "AI Review Response: $RESPONSE"
+
+      - name: Post AI Review as Comment
+        if: always()
+        run: |
+          # Note: Requires GITEA_TOKEN to be set as an environment variable or secret
+          # This posts the review as a comment on the PR
+          RESPONSE=$(curl -s http://ollama:11434/api/generate -d '{
+            "model": "llama2",
+            "prompt": "Review this code diff for bugs and security issues. Be concise:\n\n'$(cat pr_diff.txt | jq -sRr @json)'",
+            "stream": false
+          }' | jq -r '.response')
+
+          curl -X POST "http://gitea:3000/api/v1/repos/${{ gitea.repository_owner }}/${{ gitea.repository_name }}/issues/${{ gitea.event.pull_request.number }}/comments" \
             -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d "{\"body\": \"### 🤖 AI Code Review\n\n$RESPONSE\", \"event\": \"COMMENT\"}"
+            -d "{\"body\": \"### 🤖 Local AI Code Review\n\n$RESPONSE\"}"
