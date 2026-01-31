@@ -14,9 +14,17 @@ jobs:
           echo "http://git:${{ secrets.GITEA_TOKEN }}@gitea:3000" >> ~/.git-credentials
           chmod 600 ~/.git-credentials
 
+      - name: Network Debug
+        run: |
+          echo "Checking connectivity to gitea..."
+          ping -c 2 gitea || echo "Cannot ping gitea by name"
+          cat /etc/hosts
+          cat /etc/resolv.conf
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          token: ${{ secrets.GITEA_TOKEN }}
           fetch-depth: 0
 
       - name: Get Diff and Review
