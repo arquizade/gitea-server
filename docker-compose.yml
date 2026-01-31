@@ -1,0 +1,24 @@
+version: "3"
+
+networks:
+  gitea:
+    external: false
+
+services:
+  server:
+    image: gitea/gitea:1.21 # Using a stable version
+    container_name: gitea
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - GITEA__database__DB_TYPE=sqlite3 # Simplified setup
+    restart: always
+    networks:
+      - gitea
+    volumes:
+      - ./data:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "3000:3000" # Web interface (http://localhost:3000)
+      - "2222:22"   # SSH port for git clones/pushes
