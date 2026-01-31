@@ -1,6 +1,10 @@
 networks:
   gitea:
-    external: false
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
 
 services:
   # CHANGED: 'server' renamed to 'gitea' to match your dependencies
