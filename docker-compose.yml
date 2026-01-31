@@ -1,17 +1,16 @@
-version: "3"
-
 networks:
   gitea:
     external: false
 
 services:
-  server:
-    image: gitea/gitea:1.21 # Using a stable version
+  # CHANGED: 'server' renamed to 'gitea' to match your dependencies
+  gitea:
+    image: gitea/gitea:latest 
     container_name: gitea
     environment:
       - USER_UID=1000
       - USER_GID=1000
-      - GITEA__database__DB_TYPE=sqlite3 # Simplified setup
+      - GITEA__database__DB_TYPE=sqlite3
     restart: always
     networks:
       - gitea
@@ -20,5 +19,29 @@ services:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
     ports:
-      - "3000:3000" # Web interface (http://localhost:3000)
-      - "2222:22"   # SSH port for git clones/pushes
+      - "3000:3000"
+      - "2222:22"
+  
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: always
+    volumes:
+      - ./ollama:/root/.ollama
+
+  gitea-runner:
+    image: gitea/act_runner:latest
+    # This now correctly points to the 'gitea' service above
+    depends_on:
+      - gitea
+    container_name: gitea-runner
+    restart: always
+    networks:
+      - gitea
+    volumes:
+      - ./runner-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      # Use http://gitea:3000 because they share the 'gitea' network
+      - GITEA_INSTANCE_URL=http://gitea:3000
+      - GITEA_RUNNER_REGISTRATION_TOKEN=ZVrR7FmtFrf4gVT06ZShBfurxMOp9rebMi2kGsAF

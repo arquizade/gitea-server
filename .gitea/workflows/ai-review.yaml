@@ -1,0 +1,32 @@
+name: Local AI Code Review
+on:
+  pull_request:
+    types: [opened, synchronized]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get Diff and Review
+        run: |
+          # 1. Capture the changes in the PR
+          git diff HEAD^ HEAD > pr_diff.txt
+          
+          # 2. Send the diff to Ollama
+          # We use the service name 'ollama' because they are on the same docker network
+          RESPONSE=$(curl -s http://ollama:11434/api/generate -d '{
+            "model": "llama3",
+            "prompt": "Review this git diff for bugs and security issues. Keep it brief:\n\n'$(cat pr_diff.txt | jq -sRr @json)'",
+            "stream": false
+          }' | jq -r '.response')
+
+          # 3. Post the AI comment back to Gitea
+          curl -X POST "${{ gitea.api_url }}/repos/${{ gitea.repository }}/pulls/${{ gitea.event.pull_request.number }}/reviews" \
+            -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"body\": \"### 🤖 AI Code Review\n\n$RESPONSE\", \"event\": \"COMMENT\"}"
