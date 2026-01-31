@@ -53,3 +53,6 @@ services:
       - GITEA_RUNNER_CONFIG=/config.yaml
       # Allow the runner to access Docker socket for running job containers
       - DOCKER_BRIDGE_NETWORK=gitea-server_gitea
+      # Git configuration for authentication
+      - GIT_TERMINAL_PROMPT=0
+      - GIT_SSL_NO_VERIFY=false

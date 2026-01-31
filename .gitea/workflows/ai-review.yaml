@@ -7,6 +7,13 @@ jobs:
   review:
     runs-on: ubuntu-latest
     steps:
+      - name: Configure Git Authentication
+        run: |
+          # Configure git to use HTTP credentials
+          git config --global credential.helper store
+          echo "http://git:${{ secrets.GITEA_TOKEN }}@gitea:3000" >> ~/.git-credentials
+          chmod 600 ~/.git-credentials
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -19,26 +26,34 @@ jobs:
           
           # 2. Send the diff to Ollama for review
           # Using 'ollama' hostname (they're on the same docker network now)
-          RESPONSE=$(curl -s http://ollama:11434/api/generate -d '{
-            "model": "llama2",
-            "prompt": "Review this git diff for bugs and security issues. Be concise:\n\n'$(cat pr_diff.txt | jq -sRr @json)'",
-            "stream": false
-          }' | jq -r '.response')
+          RESPONSE=$(curl -s http://ollama:11434/api/generate \
+            --connect-timeout 10 \
+            --max-time 60 \
+            -d '{
+              "model": "llama2",
+              "prompt": "Review this git diff for bugs and security issues. Be concise:\n\n'$(cat pr_diff.txt | jq -sRr @json)'",
+              "stream": false
+            }' | jq -r '.response')
+
+          if [ -z "$RESPONSE" ] || [ "$RESPONSE" == "null" ]; then
+            echo "Warning: Could not get response from Ollama"
+            RESPONSE="AI review service unavailable. Please review the code manually."
+          fi
 
           echo "AI Review Response: $RESPONSE"
+          echo "REVIEW_RESPONSE<<EOF" >> $GITHUB_ENV
+          echo "$RESPONSE" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
       - name: Post AI Review as Comment
         if: always()
         run: |
-          # Note: Requires GITEA_TOKEN to be set as an environment variable or secret
-          # This posts the review as a comment on the PR
-          RESPONSE=$(curl -s http://ollama:11434/api/generate -d '{
-            "model": "llama2",
-            "prompt": "Review this code diff for bugs and security issues. Be concise:\n\n'$(cat pr_diff.txt | jq -sRr @json)'",
-            "stream": false
-          }' | jq -r '.response')
-
-          curl -X POST "http://gitea:3000/api/v1/repos/${{ gitea.repository_owner }}/${{ gitea.repository_name }}/issues/${{ gitea.event.pull_request.number }}/comments" \
+          # Post the review as a comment on the PR
+          REVIEW_TEXT="${{ env.REVIEW_RESPONSE }}"
+          
+          curl -s -X POST "http://gitea:3000/api/v1/repos/${{ gitea.repository_owner }}/${{ gitea.repository_name }}/issues/${{ gitea.event.pull_request.number }}/comments" \
             -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d "{\"body\": \"### 🤖 Local AI Code Review\n\n$RESPONSE\"}"
+            -d "{\"body\": \"### 🤖 Local AI Code Review\n\n$REVIEW_TEXT\"}" \
+            --connect-timeout 10 \
+            --max-time 30
