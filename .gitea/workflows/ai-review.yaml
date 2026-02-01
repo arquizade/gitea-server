@@ -28,36 +28,37 @@ jobs:
           # 1. Capture the changes in the PR
           git diff HEAD^ HEAD > pr_diff.txt
           
-          # 2. Create proper JSON file to avoid escaping issues
-          DIFF_CONTENT=$(cat pr_diff.txt | jq -sRr .)
-          cat > /tmp/ollama_request.json <<EOF
-          {
-            "model": "llama3",
-            "stream": false,
-            "prompt": "Review this git diff for bugs and security issues. Be concise:\n\n${DIFF_CONTENT}"
-          }
-          EOF
+          # 2. Use jq to build a perfectly escaped JSON payload
+          # This prevents the "invalid character" errors caused by manual string concatenation
+          jq -n \
+            --arg model "llama3" \
+            --arg diff "$(cat pr_diff.txt)" \
+            '{
+              model: $model, 
+              stream: false, 
+              prompt: ("Review this git diff for bugs and security issues. Be concise:\n\n" + $diff)
+            }' > /tmp/ollama_request.json
           
           echo "📤 Sending to Ollama at 172.20.0.3:11434..."
           
-          # 3. Call Ollama with file-based JSON (cleaner, no escaping issues)
-          RAW_RESPONSE=$(curl -i -X POST http://172.20.0.3:11434/api/generate \
+          # 3. Call Ollama (Using -s to hide progress numbers and -S to show errors)
+          RESPONSE_JSON=$(curl -sS -X POST http://172.20.0.3:11434/api/generate \
             --connect-timeout 10 \
             --max-time 60 \
             -H "Content-Type: application/json" \
             -d @/tmp/ollama_request.json)
           
-          echo -e "\n📥 RAW API RESPONSE:\n$RAW_RESPONSE\n"
+          # 4. Extract the response body safely
+          RESPONSE=$(echo "$RESPONSE_JSON" | jq -r '.response // empty')
           
-          # 4. Extract just the response body (skip headers)
-          RESPONSE=$(echo "$RAW_RESPONSE" | tail -1 | jq -r '.response // "ERROR: Could not parse response"')
-          
-          if [ -z "$RESPONSE" ] || [ "$RESPONSE" == "null" ] || [[ "$RESPONSE" == *"ERROR"* ]]; then
+          if [ -z "$RESPONSE" ]; then
             echo "❌ Warning: Could not get valid response from Ollama"
             RESPONSE="AI review service unavailable. Please review the code manually."
           fi
 
-          echo "✅ AI Review Response: $RESPONSE"
+          echo "✅ AI Review completed."
+          
+          # Export to GITHUB_ENV for the next step
           echo "REVIEW_RESPONSE<<EOF" >> $GITHUB_ENV
           echo "$RESPONSE" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
@@ -67,25 +68,20 @@ jobs:
         run: |
           # Post the review as a comment on the PR
           REVIEW_TEXT="${{ env.REVIEW_RESPONSE }}"
-          OWNER="${{ gitea.repository_owner }}"
-          REPO="${{ gitea.repository_name }}"
-          PR_NUMBER="${{ gitea.event.pull_request.number }}"
+          # Use 'github' context which is standard for Gitea Actions/Runner compatibility
+          OWNER="${{ github.repository_owner }}"
+          REPO="${{ github.event.repository.name }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
           TOKEN="${{ secrets.GITEA_TOKEN }}"
           
           echo "Posting comment to: /repos/$OWNER/$REPO/issues/$PR_NUMBER/comments"
           
-          # Create JSON payload file to avoid escaping issues
-          REVIEW_CONTENT=$(echo "$REVIEW_TEXT" | jq -sRr .)
-          cat > /tmp/comment_request.json <<EOF
-          {
-            "body": "### 🤖 Local AI Code Review\n\n${REVIEW_CONTENT}"
-          }
-          EOF
+          # Create JSON payload using jq to handle special characters in the AI's response
+          jq -n \
+            --arg body "### 🤖 Local AI Code Review${BR}${BR}${REVIEW_TEXT}" \
+            '{body: $body}' > /tmp/comment_request.json
           
-          echo "📋 Comment payload:"
-          cat /tmp/comment_request.json
-          
-          curl -v -X POST "http://172.20.0.2:3000/api/v1/repos/$OWNER/$REPO/issues/$PR_NUMBER/comments" \
+          curl -sS -X POST "http://172.20.0.2:3000/api/v1/repos/$OWNER/$REPO/issues/$PR_NUMBER/comments" \
             -H "Authorization: token $TOKEN" \
             -H "Content-Type: application/json" \
             -d @/tmp/comment_request.json \
