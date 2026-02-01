@@ -44,6 +44,15 @@ services:
       - ./ollama:/root/.ollama
     ports:
       - "11434:11434"
+    # --- ADD THE SECTION BELOW ---
+    deploy:
+      resources:
+        limits:
+          memory: 8G     # Hard limit: Container will restart if it hits this
+          cpus: '4.0'    # Max CPU usage
+        reservations:
+          memory: 4G     # Guaranteed RAM for the container
+    # --- END OF ADDITION ---
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
       interval: 10s

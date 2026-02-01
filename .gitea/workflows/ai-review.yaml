@@ -28,32 +28,26 @@ jobs:
           # 1. Capture the changes in the PR
           git diff HEAD^ HEAD > pr_diff.txt
           
-          # Debug: Check if diff is empty
-          if [ ! -s pr_diff.txt ]; then
-            echo "⚠️  WARNING: pr_diff.txt is empty!"
-            echo "Available branches:"
-            git branch -a
-            echo "Git log:"
-            git log --oneline -5
-            echo "Trying alternative diff..."
-            git diff HEAD > pr_diff.txt
-          fi
+          # 2. Create proper JSON file to avoid escaping issues
+          cat > /tmp/ollama_request.json <<'JSONEOF'
+          {
+            "model": "llama3",
+            "stream": false,
+            "prompt": "Review this git diff for bugs and security issues. Be concise:\n\nJSONEOF
+          cat pr_diff.txt | jq -sRr . >> /tmp/ollama_request.json
+          cat >> /tmp/ollama_request.json <<'JSONEOF'
+          "
+          }
+          JSONEOF
           
-          echo "📋 Diff file size: $(wc -c < pr_diff.txt) bytes"
-          echo "First 500 chars of diff:"
-          head -c 500 pr_diff.txt
-          echo -e "\n---"
-          
-          # 2. Prepare the content for Ollama
-          DIFF_CONTENT=$(cat pr_diff.txt | jq -sRr @json)
           echo "📤 Sending to Ollama at 172.20.0.3:11434..."
           
-          # 3. Call Ollama with full error output (not silent)
+          # 3. Call Ollama with file-based JSON (cleaner, no escaping issues)
           RAW_RESPONSE=$(curl -i -X POST http://172.20.0.3:11434/api/generate \
             --connect-timeout 10 \
             --max-time 60 \
             -H "Content-Type: application/json" \
-            -d "{\"model\": \"llama3\", \"prompt\": \"Review this git diff for bugs and security issues. Be concise:\\n\\n${DIFF_CONTENT}\", \"stream\": false}")
+            -d @/tmp/ollama_request.json)
           
           echo -e "\n📥 RAW API RESPONSE:\n$RAW_RESPONSE\n"
           
