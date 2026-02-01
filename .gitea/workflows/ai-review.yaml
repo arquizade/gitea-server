@@ -29,16 +29,14 @@ jobs:
           git diff HEAD^ HEAD > pr_diff.txt
           
           # 2. Create proper JSON file to avoid escaping issues
-          cat > /tmp/ollama_request.json <<'JSONEOF'
+          DIFF_CONTENT=$(cat pr_diff.txt | jq -sRr .)
+          cat > /tmp/ollama_request.json <<EOF
           {
             "model": "llama3",
             "stream": false,
-            "prompt": "Review this git diff for bugs and security issues. Be concise:\n\nJSONEOF
-          cat pr_diff.txt | jq -sRr . >> /tmp/ollama_request.json
-          cat >> /tmp/ollama_request.json <<'JSONEOF'
-          "
+            "prompt": "Review this git diff for bugs and security issues. Be concise:\n\n${DIFF_CONTENT}"
           }
-          JSONEOF
+          EOF
           
           echo "📤 Sending to Ollama at 172.20.0.3:11434..."
           
@@ -76,9 +74,20 @@ jobs:
           
           echo "Posting comment to: /repos/$OWNER/$REPO/issues/$PR_NUMBER/comments"
           
+          # Create JSON payload file to avoid escaping issues
+          REVIEW_CONTENT=$(echo "$REVIEW_TEXT" | jq -sRr .)
+          cat > /tmp/comment_request.json <<EOF
+          {
+            "body": "### 🤖 Local AI Code Review\n\n${REVIEW_CONTENT}"
+          }
+          EOF
+          
+          echo "📋 Comment payload:"
+          cat /tmp/comment_request.json
+          
           curl -v -X POST "http://172.20.0.2:3000/api/v1/repos/$OWNER/$REPO/issues/$PR_NUMBER/comments" \
             -H "Authorization: token $TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"body\": \"### 🤖 Local AI Code Review\n\n$REVIEW_TEXT\"}" \
+            -d @/tmp/comment_request.json \
             --connect-timeout 10 \
             --max-time 30
