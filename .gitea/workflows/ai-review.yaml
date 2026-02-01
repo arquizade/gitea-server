@@ -36,7 +36,7 @@ jobs:
             --connect-timeout 10 \
             --max-time 60 \
             -H "Content-Type: application/json" \
-            -d "{\"model\": \"llama2\", \"prompt\": \"Review this git diff for bugs and security issues. Be concise:\\n\\n${DIFF_CONTENT}\", \"stream\": false}" | jq -r '.response')
+            -d "{\"model\": \"llama3\", \"prompt\": \"Review this git diff for bugs and security issues. Be concise:\\n\\n${DIFF_CONTENT}\", \"stream\": false}" | jq -r '.response')
 
           if [ -z "$RESPONSE" ] || [ "$RESPONSE" == "null" ]; then
             echo "Warning: Could not get response from Ollama"
