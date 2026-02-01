@@ -7,34 +7,31 @@ jobs:
   review:
     runs-on: ubuntu-latest
     steps:
-      - name: Configure Git Authentication
+      - name: Configure Git
         run: |
-          # Configure git to use HTTP credentials
           git config --global credential.helper store
-          echo "http://git:${{ secrets.GITEA_TOKEN }}@172.20.0.2:3000" >> ~/.git-credentials
+          # Using the new secret name here
+          echo "http://git:${{ secrets.AI_REVIEW_TOKEN }}@172.20.0.2:3000" >> ~/.git-credentials
           chmod 600 ~/.git-credentials
-          # Add hosts to /etc/hosts for hostname resolution
           echo "172.20.0.2 gitea" | sudo tee -a /etc/hosts
           echo "172.20.0.3 ollama" | sudo tee -a /etc/hosts
 
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITEA_TOKEN }}
+          token: ${{ secrets.AI_REVIEW_TOKEN }}
           fetch-depth: 0
 
       - name: Ensure Model Exists
         run: |
-          # Automatically pull the lightweight coding model if missing
           echo "Checking for qwen2.5-coder:3b..."
           curl -s -X POST http://172.20.0.3:11434/api/pull -d '{"name": "qwen2.5-coder:3b"}'
 
       - name: Get Diff and Review
         run: |
-          # 1. Capture the changes in the PR
           git diff HEAD^ HEAD > pr_diff.txt
           
-          # 2. Use jq to build a safe JSON payload (prevents "invalid character" errors)
+          # Build JSON safely with jq
           jq -n \
             --arg model "qwen2.5-coder:3b" \
             --arg diff "$(cat pr_diff.txt)" \
@@ -42,57 +39,34 @@ jobs:
               model: $model, 
               stream: false, 
               prompt: ("Review this git diff for bugs and security issues. Be very concise and use bullet points:\n\n" + $diff),
-              options: {
-                num_predict: 300,
-                temperature: 0.2
-              }
+              options: { num_predict: 300, temperature: 0.2 }
             }' > /tmp/ollama_request.json
           
-          echo "📤 Sending to Ollama (qwen2.5-coder:3b)..."
-          
-          # 3. Call Ollama with silent mode (-s) to remove progress numbers
-          # Increased max-time to 120s to allow for initial model loading
+          # Call Ollama
           RESPONSE_JSON=$(curl -sS -X POST http://172.20.0.3:11434/api/generate \
-            --connect-timeout 10 \
-            --max-time 120 \
             -H "Content-Type: application/json" \
             -d @/tmp/ollama_request.json)
           
-          # 4. Extract the response safely
+          # Extract response
           RESPONSE=$(echo "$RESPONSE_JSON" | jq -r '.response // empty')
           
           if [ -z "$RESPONSE" ]; then
-            echo "❌ Warning: Could not get valid response from Ollama"
-            RESPONSE="AI review service unavailable or timed out. Please review the code manually."
+            RESPONSE="AI review service unavailable. Please review manually."
           fi
 
-          echo "✅ AI Review completed."
-          
-          # Export to GITHUB_ENV for the next step
           echo "REVIEW_RESPONSE<<EOF" >> $GITHUB_ENV
           echo "$RESPONSE" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-      - name: Post AI Review as Comment
+      - name: Post Comment
         if: always()
         run: |
-          # Post the review as a comment on the PR using standard github context variables
-          REVIEW_TEXT="${{ env.REVIEW_RESPONSE }}"
-          OWNER="${{ github.repository_owner }}"
-          REPO="${{ github.event.repository.name }}"
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-          TOKEN="${{ secrets.GITEA_TOKEN }}"
-          
-          echo "Posting comment to: /repos/$OWNER/$REPO/issues/$PR_NUMBER/comments"
-          
-          # Create JSON payload using jq to handle special characters safely
-          jq -n \
-            --arg body "### 🤖 Local AI Code Review${BR}${BR}${REVIEW_TEXT}" \
-            '{body: $body}' > /tmp/comment_request.json
-          
-          curl -sS -X POST "http://172.20.0.2:3000/api/v1/repos/$OWNER/$REPO/issues/$PR_NUMBER/comments" \
-            -H "Authorization: token $TOKEN" \
+          # Build comment JSON
+          jq -n --arg body "### 🤖 Local AI Code Review
+          ${{ env.REVIEW_RESPONSE }}" '{body: $body}' > /tmp/comment.json
+
+          # Post to Gitea using the updated secret name
+          curl -sS -X POST "http://172.20.0.2:3000/api/v1/repos/${{ gitea.repository }}/issues/${{ gitea.event.pull_request.number }}/comments" \
+            -H "Authorization: token ${{ secrets.AI_REVIEW_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d @/tmp/comment_request.json \
-            --connect-timeout 10 \
-            --max-time 30
+            -d @/tmp/comment.json
