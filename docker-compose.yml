@@ -1,6 +1,10 @@
 networks:
   gitea:
-    external: false
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
 
 services:
   # CHANGED: 'server' renamed to 'gitea' to match your dependencies
@@ -13,7 +17,8 @@ services:
       - GITEA__database__DB_TYPE=sqlite3
     restart: always
     networks:
-      - gitea
+      gitea:
+        ipv4_address: 172.20.0.2
     volumes:
       - ./data:/data
       - /etc/timezone:/etc/timezone:ro
@@ -21,27 +26,55 @@ services:
     ports:
       - "3000:3000"
       - "2222:22"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/v1/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
   
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
     restart: always
+    networks:
+      gitea:
+        ipv4_address: 172.20.0.3
     volumes:
       - ./ollama:/root/.ollama
+    ports:
+      - "11434:11434"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   gitea-runner:
     image: gitea/act_runner:latest
     # This now correctly points to the 'gitea' service above
     depends_on:
-      - gitea
+      gitea:
+        condition: service_healthy
     container_name: gitea-runner
     restart: always
     networks:
-      - gitea
+      gitea:
+        ipv4_address: 172.20.0.4
     volumes:
       - ./runner-data:/data
+      - ./runner-data/config.yaml:/config.yaml
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       # Use http://gitea:3000 because they share the 'gitea' network
       - GITEA_INSTANCE_URL=http://gitea:3000
       - GITEA_RUNNER_REGISTRATION_TOKEN=ZVrR7FmtFrf4gVT06ZShBfurxMOp9rebMi2kGsAF
+      - GITEA_RUNNER_CONFIG=/config.yaml
+      # Allow the runner to access Docker socket for running job containers
+      - DOCKER_BRIDGE_NETWORK=gitea-server_gitea
+      # Git configuration for authentication
+      - GIT_TERMINAL_PROMPT=0
+      - GIT_SSL_NO_VERIFY=false
+    extra_hosts:
+      - "gitea:172.20.0.2"
+      - "ollama:172.20.0.3"
