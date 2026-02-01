@@ -30,14 +30,13 @@ jobs:
           
           # 2. Send the diff to Ollama for review
           # Using IP address 172.20.0.3 (ollama container on docker network)
+          DIFF_CONTENT=$(cat pr_diff.txt | jq -sRr @json)
+          
           RESPONSE=$(curl -s http://172.20.0.3:11434/api/generate \
             --connect-timeout 10 \
             --max-time 60 \
-            -d '{
-              "model": "llama2",
-              "prompt": "Review this git diff for bugs and security issues. Be concise:\n\n'$(cat pr_diff.txt | jq -sRr @json)'",
-              "stream": false
-            }' | jq -r '.response')
+            -H "Content-Type: application/json" \
+            -d "{\"model\": \"llama2\", \"prompt\": \"Review this git diff for bugs and security issues. Be concise:\\n\\n${DIFF_CONTENT}\", \"stream\": false}" | jq -r '.response')
 
           if [ -z "$RESPONSE" ] || [ "$RESPONSE" == "null" ]; then
             echo "Warning: Could not get response from Ollama"
@@ -54,9 +53,15 @@ jobs:
         run: |
           # Post the review as a comment on the PR
           REVIEW_TEXT="${{ env.REVIEW_RESPONSE }}"
+          OWNER="${{ gitea.repository_owner }}"
+          REPO="${{ gitea.repository_name }}"
+          PR_NUMBER="${{ gitea.event.pull_request.number }}"
+          TOKEN="${{ secrets.GITEA_TOKEN }}"
           
-          curl -s -X POST "http://172.20.0.2:3000/api/v1/repos/${{ gitea.repository_owner }}/${{ gitea.repository_name }}/issues/${{ gitea.event.pull_request.number }}/comments" \
-            -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+          echo "Posting comment to: /repos/$OWNER/$REPO/issues/$PR_NUMBER/comments"
+          
+          curl -v -X POST "http://172.20.0.2:3000/api/v1/repos/$OWNER/$REPO/issues/$PR_NUMBER/comments" \
+            -H "Authorization: token $TOKEN" \
             -H "Content-Type: application/json" \
             -d "{\"body\": \"### 🤖 Local AI Code Review\n\n$REVIEW_TEXT\"}" \
             --connect-timeout 10 \
