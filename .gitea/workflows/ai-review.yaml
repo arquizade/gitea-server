@@ -11,15 +11,11 @@ jobs:
         run: |
           # Configure git to use HTTP credentials
           git config --global credential.helper store
-          echo "http://git:${{ secrets.GITEA_TOKEN }}@gitea:3000" >> ~/.git-credentials
+          echo "http://git:${{ secrets.GITEA_TOKEN }}@172.20.0.2:3000" >> ~/.git-credentials
           chmod 600 ~/.git-credentials
-
-      - name: Network Debug
-        run: |
-          echo "Checking connectivity to gitea..."
-          ping -c 2 gitea || echo "Cannot ping gitea by name"
-          cat /etc/hosts
-          cat /etc/resolv.conf
+          # Add hosts to /etc/hosts for hostname resolution
+          echo "172.20.0.2 gitea" | sudo tee -a /etc/hosts
+          echo "172.20.0.3 ollama" | sudo tee -a /etc/hosts
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,8 +29,8 @@ jobs:
           git diff HEAD^ HEAD > pr_diff.txt
           
           # 2. Send the diff to Ollama for review
-          # Using 'ollama' hostname (they're on the same docker network now)
-          RESPONSE=$(curl -s http://ollama:11434/api/generate \
+          # Using IP address 172.20.0.3 (ollama container on docker network)
+          RESPONSE=$(curl -s http://172.20.0.3:11434/api/generate \
             --connect-timeout 10 \
             --max-time 60 \
             -d '{
@@ -59,7 +55,7 @@ jobs:
           # Post the review as a comment on the PR
           REVIEW_TEXT="${{ env.REVIEW_RESPONSE }}"
           
-          curl -s -X POST "http://gitea:3000/api/v1/repos/${{ gitea.repository_owner }}/${{ gitea.repository_name }}/issues/${{ gitea.event.pull_request.number }}/comments" \
+          curl -s -X POST "http://172.20.0.2:3000/api/v1/repos/${{ gitea.repository_owner }}/${{ gitea.repository_name }}/issues/${{ gitea.event.pull_request.number }}/comments" \
             -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d "{\"body\": \"### 🤖 Local AI Code Review\n\n$REVIEW_TEXT\"}" \
