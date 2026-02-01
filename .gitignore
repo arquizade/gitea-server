@@ -1,0 +1,8 @@
+# Data folder
+data/
+ollama/
+runner-data/
+
+# Local environment
+.env
+.env.local

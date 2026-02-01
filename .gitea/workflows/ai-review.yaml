@@ -1,0 +1,67 @@
+name: Local AI Code Review
+on:
+  pull_request:
+    types: [opened, synchronized]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure Git
+        run: |
+          git config --global credential.helper store
+          # Ensure you have a secret named AI_REVIEW_TOKEN in your repo settings
+          echo "http://git:${{ secrets.AI_REVIEW_TOKEN }}@172.20.0.2:3000" >> ~/.git-credentials
+          chmod 600 ~/.git-credentials
+          echo "172.20.0.2 gitea" | sudo tee -a /etc/hosts
+          echo "172.20.0.3 ollama" | sudo tee -a /etc/hosts
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.AI_REVIEW_TOKEN }}
+          fetch-depth: 0
+
+      - name: Ensure Model Exists
+        run: |
+          echo "Checking for qwen2.5-coder:3b..."
+          curl -s -X POST http://172.20.0.3:11434/api/pull -d '{"name": "qwen2.5-coder:3b"}'
+
+      - name: Get Diff and Review
+        run: |
+          # 1. Capture the changes
+          git diff HEAD^ HEAD > /tmp/pr_diff.txt
+          
+          # 2. Build JSON safely using --rawfile to handle special characters in the diff
+          jq -n --rawfile diff /tmp/pr_diff.txt \
+            --arg model "qwen2.5-coder:3b" \
+            '{
+              model: $model, 
+              stream: false, 
+              prompt: ("Review this git diff for bugs and security issues. Be very concise and use bullet points:\n\n" + $diff),
+              options: { num_predict: 300, temperature: 0.2 }
+            }' > /tmp/ollama_request.json
+          
+          # 3. Call Ollama and save the raw response text directly to a file
+          curl -sS -X POST http://172.20.0.3:11434/api/generate \
+            -H "Content-Type: application/json" \
+            -d @/tmp/ollama_request.json | jq -r '.response' > /tmp/ai_review.txt
+
+      - name: Post Comment
+        if: always()
+        run: |
+          # 1. Ensure the review file isn't empty
+          if [ ! -s /tmp/ai_review.txt ]; then
+            echo "AI review failed or returned no content."
+            exit 0
+          fi
+
+          # 2. Build the Gitea comment payload safely from the file
+          jq -n --rawfile body /tmp/ai_review.txt \
+            '{"body": ("### 🤖 Local AI Code Review\n\n" + $body)}' > /tmp/comment.json
+
+          # 3. Post to Gitea using the internal IP and repo context
+          curl -sS -X POST "http://172.20.0.2:3000/api/v1/repos/${{ gitea.repository }}/issues/${{ gitea.event.pull_request.number }}/comments" \
+            -H "Authorization: token ${{ secrets.AI_REVIEW_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/comment.json
