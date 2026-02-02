@@ -1,5 +1,6 @@
 networks:
   gitea:
+    name: gitea_network  # EXPLICIT NAME ensures portability
     driver: bridge
     ipam:
       config:
@@ -7,7 +8,6 @@ networks:
           gateway: 172.20.0.1
 
 services:
-  # CHANGED: 'server' renamed to 'gitea' to match your dependencies
   gitea:
     image: gitea/gitea:latest 
     container_name: gitea
@@ -44,15 +44,13 @@ services:
       - ./ollama:/root/.ollama
     ports:
       - "11434:11434"
-    # --- ADD THE SECTION BELOW ---
     deploy:
       resources:
         limits:
-          memory: 8G     # Hard limit: Container will restart if it hits this
-          cpus: '4.0'    # Max CPU usage
+          memory: 8G
+          cpus: '4.0'
         reservations:
-          memory: 4G     # Guaranteed RAM for the container
-    # --- END OF ADDITION ---
+          memory: 4G
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
       interval: 10s
@@ -61,7 +59,6 @@ services:
 
   gitea-runner:
     image: gitea/act_runner:latest
-    # This now correctly points to the 'gitea' service above
     depends_on:
       gitea:
         condition: service_healthy
@@ -72,16 +69,13 @@ services:
         ipv4_address: 172.20.0.4
     volumes:
       - ./runner-data:/data
-      - ./runner-data/config.yaml:/config.yaml
+      - ./config.yaml:/config.yaml
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      # Use http://gitea:3000 because they share the 'gitea' network
       - GITEA_INSTANCE_URL=http://gitea:3000
-      - GITEA_RUNNER_REGISTRATION_TOKEN=ZVrR7FmtFrf4gVT06ZShBfurxMOp9rebMi2kGsAF
+      - GITEA_RUNNER_REGISTRATION_TOKEN=${GITEA_RUNNER_REGISTRATION_TOKEN} 
       - GITEA_RUNNER_CONFIG=/config.yaml
-      # Allow the runner to access Docker socket for running job containers
-      - DOCKER_BRIDGE_NETWORK=gitea-server_gitea
-      # Git configuration for authentication
+      - DOCKER_BRIDGE_NETWORK=gitea_network
       - GIT_TERMINAL_PROMPT=0
       - GIT_SSL_NO_VERIFY=false
     extra_hosts:

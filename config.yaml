@@ -1,0 +1,13 @@
+container:
+  # CHANGED: Must match the explicit 'name' we added to docker-compose.yml
+  network: "gitea_network"
+  enable_network_alias: true
+  extra_hosts:
+    - "gitea:172.20.0.2"
+    - "ollama:172.20.0.3"
+
+runner:
+  timeout: 3600
+  
+log:
+  level: debug

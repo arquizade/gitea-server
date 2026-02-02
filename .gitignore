@@ -1,8 +1,14 @@
-# Data folder
+# --- Application Data (DO NOT COMMIT) ---
+# Contains your git repos, database, and ssh keys
 data/
+
+# Contains the heavy AI models (GBs of data)
 ollama/
+
+# Contains Gitea Runner config and state
 runner-data/
 
-# Local environment
+# --- Secrets & Environment ---
 .env
-.env.local
+.DS_Store
+Thumbs.db
