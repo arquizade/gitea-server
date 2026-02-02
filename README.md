@@ -1,4 +1,4 @@
-# Gitea Server
+# Gitea Local AI Dev Stack
 
 A self-hosted Git service with CI/CD and AI capabilities using Docker Compose.
 
